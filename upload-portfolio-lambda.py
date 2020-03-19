@@ -6,19 +6,28 @@ import zipfile
 import mimetypes
 
 def lambda_handler(event, context):
+    
+    sns = boto3.resource('sns')
+    topic = sns.Topic('arn:aws:sns:us-west-2:283326501218:deployPortfolioTopic')
 
-    s3 = boto3.resource('s3', config=Config(signature_version='s3v4'))
+    try:    
+        s3 = boto3.resource('s3', config=Config(signature_version='s3v4'))
+        
+        portfolio_bucket = s3.Bucket('portfolio.steel-monkey.org')
+        build_bucket = s3.Bucket('portfoliobuild.steel-monkey.org')
+        
+        portfolio_zip = BytesIO()
+        build_bucket.download_fileobj('buildPortfolio', portfolio_zip)
+        
+        with zipfile.ZipFile(portfolio_zip) as myzip:
+            for nm in myzip.namelist():
+                obj = myzip.open(nm)
+                portfolio_bucket.upload_fileobj(obj, nm, ExtraArgs={'ContentType': mimetypes.guess_type(nm)[0]})
+                portfolio_bucket.Object(nm).Acl().put(ACL='public-read')
     
-    portfolio_bucket = s3.Bucket('portfolio.steel-monkey.org')
-    build_bucket = s3.Bucket('portfoliobuild.steel-monkey.org')
-    
-    portfolio_zip = BytesIO()
-    build_bucket.download_fileobj('buildPortfolio', portfolio_zip)
-    
-    with zipfile.ZipFile(portfolio_zip) as myzip:
-        for nm in myzip.namelist():
-            obj = myzip.open(nm)
-            portfolio_bucket.upload_fileobj(obj, nm, ExtraArgs={'ContentType': mimetypes.guess_type(nm)[0]})
-            portfolio_bucket.Object(nm).Acl().put(ACL='public-read')
+        topic.publish(Subject='Lambda Deploy Successful', Message='All in the subject...')
+    except:
+        topic.publish(Subject='Lambda Deploy NOT Successful', Message='All in the subject...')
+        raise 
             
     return 'Hello from SteelMonkey'
